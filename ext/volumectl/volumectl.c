@@ -74,18 +74,46 @@ VALUE method_unmute_default(VALUE self) {
 
 // Test for a connection
 VALUE method_test(VALUE self) {
-  long min, max;
+  long min, max, volume;
+  int channel;
   snd_mixer_t *handle = NULL;
   snd_mixer_selem_id_t *sid;
   const char *card = "default";
   const char *selem_name = "Master";
   
   snd_mixer_open(&handle, 0);
+  snd_mixer_attach(handle, card);
+  snd_mixer_selem_register(handle, NULL, NULL);
+  snd_mixer_load(handle);
+  
+  snd_mixer_selem_id_alloca(&sid);
+  snd_mixer_selem_id_set_index(sid, 0);
+  snd_mixer_selem_id_set_name(sid, selem_name);
+  
+  snd_mixer_elem_t* elem = snd_mixer_find_selem(handle, sid);
+  snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+  //snd_mixer_selem_set_playback_volume_all(elem, 32768);
+  
+  channel = -1;
+  volume = -999;
+  
+  snd_mixer_handle_events(handle);
+  snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_REAR_CENTER, &volume);
+  printf("Volume on BS channel: %d\n", volume);
+  
+  volume = -999;
+  snd_mixer_handle_events(handle);
+  snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_WOOFER, &volume);
+  printf("Volume on woofer channel: %d\n", volume);
+  
+  volume = -999;
+  snd_mixer_handle_events(handle);
+  snd_mixer_selem_get_playback_volume(elem, 5, &volume);
+  printf("ALSO volume on woofer channel: %d\n", volume);
+  
   snd_mixer_close(handle);
   
-  //puts(rb_str_new2(SND_PCM_STREAM_PLAYBACK));
-  
-  return Qnil;
+  return LONG2FIX(volume);
 }
 
 // Initialize the VolumeCtl module
