@@ -13,6 +13,16 @@
 // data from it
 #define MIXLOADER mixer_obj* mixer; \
   TypedData_Get_Struct(self, mixer_obj, &mixer_type, mixer);
+  
+// Shorthand to grab the volumes and assign them for comparison
+#define VOLLOADER VALUE c = method_mixer_volume(self); \
+  long max = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("max")))); \
+  long min = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("min")))); \
+  long curr = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current")))); \
+  int curr_p = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current_p"))));
+  
+// Shorthand for vout conversion
+#define VOUT long vout = round((((long) volume) * max) / 100);
 
 // Basic type initiators used in this file
 VALUE VolumeCtl = Qnil;
@@ -20,7 +30,7 @@ VALUE Mixer = Qnil;
 // End type initiators
 
 // ---------------------------
-// MIXER METHODS BELOW
+// MIXER STRUCT BELOW
 // ---------------------------
 
 // Define the mixer struct
@@ -31,6 +41,10 @@ typedef struct {
   
   int id; // This is really just a test field...
 } mixer_obj; // End Mixer struct def
+
+// ---------------------------
+// MIXER METHODS BELOW
+// ---------------------------
 
 // Free method for mixer
 void mixer_free(void* data) {
@@ -117,7 +131,9 @@ VALUE method_mixer_connect(int argc, VALUE *card_info, VALUE self) {
 
 // Disconnect from the ALSA server
 VALUE method_mixer_disconnect(VALUE self) {
-  return Qnil;
+  MIXLOADER; // Shorthand load the mixer
+  snd_mixer_close(mixer->handle); // Close the mixer
+  return Qtrue;
 } // End disconnect method
 
 // Get the volume of the mixer
@@ -150,48 +166,80 @@ VALUE method_mixer_volume(VALUE self) {
   return volumes;
 } // End volume getter for mixer
 
-/* Set the volume to a specified state for the
- * current default sink.
- * 
- * This private method will NOT set the volume for
- * separate channels to different numbers, but will,
- * instead, modify the volumes of ALL channels.
- * 
- * A separate method might be added to do the above.
- * 
- * This method will either modify the volume using a
- */
-VALUE method_volume_mod(VALUE self, VALUE volume) {
-  return volume;
-} // End modify volume
+// ---------------------------
+// MIXER PRIVATE METHODS BELOW
+// ---------------------------
 
-/* Check to see if the volume is of an acceptable type,
- * and then set it to the user's defined volume. This will
- * call 'pmod_dvolume', which will change the volume up, down,
- * mute, or to a specific number.
+// Raise the volume by percent or up to max
+VALUE method_mixer_volume_up(VALUE self, VALUE volume) {
+  MIXLOADER; // Shorthand load the mixer
+  VOLLOADER; // Shorthand load the volumes
+  VOUT; // Shorthand adjust volume
+  int mod_v = curr + vout; // Add value to current
+  int new_v = (int) (mod_v > max ? max : mod_v); // Can't be greater than max
+  
+  // Set the volume
+  snd_mixer_selem_set_playback_volume_all(mixer->element, new_v);
+  return method_mixer_volume(self);
+} // End volume raise
+
+// Lower the volume by percent or down to min
+VALUE method_mixer_volume_down(VALUE self, VALUE volume) {
+  MIXLOADER; // Shorthand load the mixer
+  VOLLOADER; // Shorthand load the volumes
+  VOUT; // Shorthand adjust volume
+  int mod_v = curr - vout; // Subtract value from current
+  int new_v = (int) (mod_v < min ? min : mod_v); // Can't be lower than min
+  
+  // Set the volume
+  snd_mixer_selem_set_playback_volume_all(mixer->element, new_v);
+  return method_mixer_volume(self);
+} // End volume lower
+
+// Set volume to specified value
+VALUE method_mixer_volume_value(VALUE self, VALUE volume) {
+  MIXLOADER; // Shorthand load the mixer
+  VOLLOADER; // Shorthand load the volumes
+  VOUT; // Shorthand adjust volume
+  long new_v; // Init new_v for multiple assignment possibility
+  
+  // Assign new_v to the matching block
+  if (vout > max) { new_v = max; } // Too high
+  else if (vout < min) { new_v = min; } // Too low
+  else { new_v = vout; } // new_v is itself
+  
+  // Set the volume
+  snd_mixer_selem_set_playback_volume_all(mixer->element, new_v);
+  return method_mixer_volume(self);
+} // End set volume to specified
+
+// ---------------------------
+// END MIXER PRIVATE METHODS
+// ---------------------------
+
+/* Abstract volume setter method -- calls volume_up,
+ * volume_down, or volume_value.
+ * 
+ * -1 is for down, 0 is for value, 1 is for up
  */
-VALUE method_set_mixer_volume(int argc, VALUE* volmodv, VALUE self) {
-  VALUE magnitude, adjustment;
-  
-  /* Scan in the arguments for the volume, &volume,
-   * and the modification of the volume change, &adjustment.
-   * 
-   * Adjustment should be:
-   * * (nothing) -- set the volume to a specific magnitude
-   * * the character, '+' -- raise the volume by that magnitude
-   * * 
-   */
-  rb_scan_args(argc, volmodv, "11", &magnitude, &adjustment);
-  
-  if (RB_TYPE_P(magnitude, T_FIXNUM)) {
-    return magnitude;
+VALUE method_mixer_set_volume_abstract(VALUE self, VALUE magnitude, VALUE adjustment) {
+  VALUE adj_t = TYPE(adjustment); // Get the type of the adjustment
+  // If type is correct AND magnitude is a number
+  if (RB_TYPE_P(magnitude, T_FIXNUM) && adj_t == T_FIXNUM) {
+    int adj_fix = NUM2INT(adjustment); // If number, cast to int
+    int mag_fix = (int) abs (NUM2INT(magnitude)); // Cast the magnitude to int and take absolute value
+    if (adj_fix > 0) {
+      return method_mixer_volume_up(self, mag_fix);
+    } else if (adj_fix < 0) {
+      return method_mixer_volume_down(self, mag_fix);
+    } else { return method_mixer_volume_value(self, mag_fix); }
+  // Otherwise, the wrong types were passed
   } else {
-    puts("'set_volume' ERROR: volmod should be either FIXNUM/INT or");
-    puts("  FIXNUM/INT and one of the characters, '+' or '-'");
+    puts("'set_volume' ERROR: magnitude should be either FIXNUM/INT and");
+    puts("  adjustment should be -1, 0, or 1 -- ");
     return Qnil;
   }
-  return Qnil;
-} // End set_volume
+} // End abstract volume setter
 
 // Mute the default sink volume
 VALUE method_mixer_mute(VALUE self) {
@@ -211,27 +259,6 @@ VALUE method_mixer_unmute(VALUE self) {
   return LONG2NUM(mixer->unmute_vol);
 } // End unmute
 
-// ---------------------------
-// MIXER TEST METHODS BELOW
-// ---------------------------
-
-// Test Mixer
-VALUE method_mixer_test(VALUE self) {
-  MIXLOADER; // Shorthand load the mixer
-  return LONG2FIX(mixer->id);
-} // End test of mixer
-
-// Test Mixer set
-VALUE method_mixer_test_set(VALUE self, VALUE new_id) {
-  MIXLOADER; // Shorthand load the mixer
-  mixer->id = NUM2INT(new_id); // Test setting the ID
-  return LONG2FIX(mixer->id);
-} // End set test of mixer
-
-// ---------------------------
-// END MIXER TEST METHODS
-// ---------------------------
-
 // Initialize the VolumeCtl module
 void Init_volumectl() {
   VolumeCtl = rb_define_module("VolumeCtl"); // Module
@@ -248,53 +275,10 @@ void Init_volumectl() {
   rb_define_method(Mixer, "volume", method_mixer_volume, 0);
   rb_define_method(Mixer, "mute", method_mixer_mute, 0);
   rb_define_method(Mixer, "unmute", method_mixer_unmute, 0);
+  rb_define_method(Mixer, "set_volume", method_mixer_set_volume_abstract, 2);
   
-  // Test funcs
-  rb_define_method(Mixer, "test", method_mixer_test, 0);
-  rb_define_method(Mixer, "test_s", method_mixer_test_set, 1);
+  // Private volume setters
+  rb_define_private_method(Mixer, "pri_volume_raise", method_mixer_volume_up, 1);
+  rb_define_private_method(Mixer, "pri_volume_lower", method_mixer_volume_down, 1);
+  rb_define_private_method(Mixer, "pri_volume_value", method_mixer_volume_value, 1);
 } // End init
-
-/*
-// Test for a connection
-VALUE method_test(VALUE self) {
-  long min, max, volume;
-  int channel;
-  snd_mixer_t *handle = NULL;
-  snd_mixer_selem_id_t *sid;
-  const char *card = "default";
-  const char *selem_name = "Master";
-  
-  snd_mixer_open(&handle, 0);
-  snd_mixer_attach(handle, card);
-  snd_mixer_selem_register(handle, NULL, NULL);
-  snd_mixer_load(handle);
-  
-  snd_mixer_selem_id_alloca(&sid);
-  snd_mixer_selem_id_set_index(sid, 0);
-  snd_mixer_selem_id_set_name(sid, selem_name);
-  
-  snd_mixer_elem_t* elem = snd_mixer_find_selem(handle, sid);
-  snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
-  //snd_mixer_selem_set_playback_volume_all(elem, 32768);
-  
-  channel = -1;
-  volume = -999;
-  
-  snd_mixer_handle_events(handle);
-  snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_REAR_CENTER, &volume);
-  printf("Volume on BS channel: %d\n", volume);
-  
-  volume = -999;
-  snd_mixer_handle_events(handle);
-  snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_WOOFER, &volume);
-  printf("Volume on woofer channel: %d\n", volume);
-  
-  volume = -999;
-  snd_mixer_handle_events(handle);
-  snd_mixer_selem_get_playback_volume(elem, 5, &volume);
-  printf("ALSO volume on woofer channel: %d\n", volume);
-  
-  snd_mixer_close(handle);
-  
-  return LONG2FIX(volume);
-}*/
