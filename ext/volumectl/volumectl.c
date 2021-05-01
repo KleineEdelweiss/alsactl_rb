@@ -1,3 +1,4 @@
+/* NON-TESTING FILE */
 // Include Ruby
 #include <ruby.h>
 
@@ -12,15 +13,15 @@
 // Expansion to create a mixer pointer and then get the
 // data from it
 #define MIXLOADER mixer_obj* mixer; \
-  TypedData_Get_Struct(self, mixer_obj, &mixer_type, mixer);
-  
+TypedData_Get_Struct(self, mixer_obj, &mixer_type, mixer);
+
 // Shorthand to grab the volumes and assign them for comparison
 #define VOLLOADER VALUE c = method_mixer_volume(self); \
-  long max = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("max")))); \
-  long min = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("min")))); \
-  long curr = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current")))); \
-  int curr_p = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current_p"))));
-  
+long max = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("max")))); \
+long min = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("min")))); \
+long curr = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current")))); \
+int curr_p = NUM2LONG(rb_hash_aref(c, ID2SYM(rb_intern("current_p"))));
+
 // Shorthand for vout conversion
 #define VOUT long vout = round((((long) volume) * max) / 100);
 
@@ -38,8 +39,7 @@ typedef struct {
   snd_mixer_t* handle; // Mixer handle
   snd_mixer_elem_t* element; // Mixer element
   int unmute_vol; // Volume, if mute turned off
-  
-  int id; // This is really just a test field...
+  int channels[SND_MIXER_SCHN_LAST + 1]; // Array to store all channels
 } mixer_obj; // End Mixer struct def
 
 // ---------------------------
@@ -88,7 +88,7 @@ VALUE mixer_m_initialize(VALUE self) {
     .handle = handle,
     .element = elem,
     .unmute_vol = 0,
-    .id = -999,
+    .channels = { 0 },
   };
   
   MIXLOADER; // Shorthand load the mixer
@@ -126,6 +126,12 @@ VALUE method_mixer_connect(int argc, VALUE *card_info, VALUE self) {
   // Instantiate the mixer element attached to the handle
   mixer->element = snd_mixer_find_selem(mixer->handle, sid);
   
+  // Attach all the channels to the object
+  for (int i = 0; i < (SND_MIXER_SCHN_LAST + 1); i++) {
+    // Channels that exist have a 1. Channels that don't stay 0
+    mixer->channels[i] = snd_mixer_selem_has_playback_channel(mixer->element, i);
+  }
+  
   return self;
 } // End connect method
 
@@ -136,11 +142,22 @@ VALUE method_mixer_disconnect(VALUE self) {
   return Qtrue;
 } // End disconnect method
 
+// Enumerate the channels
+VALUE method_mixer_enum_channels(VALUE self) {
+  MIXLOADER; // Shorthand load the mixer
+  VALUE channels = rb_hash_new(); // Hash of channels
+  for (int i = 0; i < (sizeof(mixer->channels) / sizeof(int)); i++) {
+    // Check if the channel exists; if so, give it a true key.
+    // Ignore any channels not present -- a bad index returns NIL, anyway
+    if (mixer->channels[i] == 1) { rb_hash_aset(channels, INT2NUM(i), Qtrue); }
+  }
+  return channels;
+} // End channel enumerator
+
 // Get the volume of the mixer
 VALUE method_mixer_volume(VALUE self) {
   long min, max, current; // Volume values
   MIXLOADER; // Shorthand load the mixer
-  
   snd_mixer_handle_events(mixer->handle); // Refresh events on handle
   snd_mixer_selem_get_playback_volume_range(mixer->element, &min, &max); // Get  volume range
   // Get the default playback volume channel
@@ -150,8 +167,7 @@ VALUE method_mixer_volume(VALUE self) {
   // for reasons logical to audio use)
   int perc = (int) round(( ((double) current / (double) max) ) * 100);
   
-  // Initialize the unmute volume, if it has not
-  // yet been set
+  // Initialize the unmute volume, if it has not yet been set
   if (mixer->unmute_vol < 1) {
     mixer->unmute_vol = (long) ((double) max / (double) 2);
   } // Default unmute is 50%
@@ -165,6 +181,58 @@ VALUE method_mixer_volume(VALUE self) {
   
   return volumes;
 } // End volume getter for mixer
+
+// Get a specific channel's volume
+VALUE method_mixer_volume_channel(VALUE self, VALUE cid) {
+  long min, max, current; // Volume values
+  MIXLOADER; // Shorthand load the mixer
+  snd_mixer_handle_events(mixer->handle); // Refresh events on handle
+  snd_mixer_selem_get_playback_volume_range(mixer->element, &min, &max); // Get  volume range
+  
+  // Get the volume for the channel, but only if cid (channel id) is valid
+  if (RB_TYPE_P(cid, T_FIXNUM)){
+    int cid_fix = NUM2INT(cid);
+    if (mixer->channels[cid_fix] == 1) {
+      snd_mixer_selem_get_playback_volume(mixer->element, cid_fix, &current);
+      VALUE channel = rb_hash_new(); // Channel has id and percent
+      rb_hash_aset(channel, rb_id2sym(rb_intern("volume")), LONG2NUM(current));
+      // Get the percentage of the total (round to 0 decimals,
+      // for reasons logical to audio use)
+      int perc = (int) round(( ((double) current / (double) max) ) * 100);
+      rb_hash_aset(channel, rb_id2sym(rb_intern("percent")), INT2NUM(perc));
+      return channel;
+    } else { return Qfalse; } // False if channel doesn't exist
+  } else { return Qnil; } // Nil if channel id is not a number
+} // End getter for single-channel volume
+
+// Get the volume by channel of the mixer
+VALUE method_mixer_volume_all(VALUE self) {
+  long min, max, current; // Volume values
+  MIXLOADER; // Shorthand load the mixer
+  // Create an array of longs for each channel
+  int len = (sizeof(mixer->channels) / sizeof(int));
+  long c_volumes[len]; // Length of the channel array
+  snd_mixer_handle_events(mixer->handle); // Refresh events on handle
+  snd_mixer_selem_get_playback_volume_range(mixer->element, &min, &max); // Get  volume range
+  // Create a volume hash object -- will add each channel in the subsequent
+  // iterator loop.
+  VALUE volumes = rb_hash_new();
+  // Iterate through all the channels
+  for (int i = 0; i < (len); i++) {
+    if (mixer->channels[i] == 1) { // Only set channels that exist on this device
+      snd_mixer_selem_get_playback_volume(mixer->element, i, &current);
+      VALUE channel = rb_hash_new(); // Channel has id and percent
+      rb_hash_aset(channel, rb_id2sym(rb_intern("volume")), LONG2NUM(current));
+      // Get the percentage of the total (round to 0 decimals,
+      // for reasons logical to audio use)
+      int perc = (int) round(( ((double) current / (double) max) ) * 100);
+      rb_hash_aset(channel, rb_id2sym(rb_intern("percent")), INT2NUM(perc));
+      // Attach the channel to the output hash
+      rb_hash_aset(volumes, INT2NUM(i), channel);
+    } // End setting of only valid channels
+  } // End iteration over channels
+  return volumes;
+} // End volume-by-channel getter for mixer
 
 // ---------------------------
 // MIXER PRIVATE METHODS BELOW
@@ -233,7 +301,7 @@ VALUE method_mixer_set_volume_abstract(VALUE self, VALUE magnitude, VALUE adjust
     } else if (adj_fix < 0) {
       return method_mixer_volume_down(self, mag_fix);
     } else { return method_mixer_volume_value(self, mag_fix); }
-  // Otherwise, the wrong types were passed
+    // Otherwise, the wrong types were passed
   } else {
     puts("'set_volume' ERROR: magnitude should be either FIXNUM/INT and");
     puts("  adjustment should be -1, 0, or 1 -- ");
@@ -271,8 +339,15 @@ void Init_volumectl() {
   rb_define_method(Mixer, "disconnect", method_mixer_disconnect, 0);
   rb_define_method(Mixer, "close", method_mixer_disconnect, 0);
   
-  // Volume controls
+  // Information methods
+  rb_define_method(Mixer, "enum", method_mixer_enum_channels, 0);
+  
+  // Readers
   rb_define_method(Mixer, "volume", method_mixer_volume, 0);
+  rb_define_method(Mixer, "volume_c", method_mixer_volume_channel, 1);
+  rb_define_method(Mixer, "volume_a", method_mixer_volume_all, 0);
+  
+  // Manipulators
   rb_define_method(Mixer, "mute", method_mixer_mute, 0);
   rb_define_method(Mixer, "unmute", method_mixer_unmute, 0);
   rb_define_method(Mixer, "set_volume", method_mixer_set_volume_abstract, 2);
