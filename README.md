@@ -1,38 +1,46 @@
 ### OVERVIEW ###
-VolumeCtl is a C-Ruby API wrapper for the ALSA library on Linux. By default, it handles the Master/default mixer object (default volume).
+VolumeCtl is a C-Ruby API wrapper with a pure Ruby middleware, for the ALSA library on Linux. By default, it handles the ``default/Master`` mixer object (current default volume controller). The base class, ``MixCore::BaseMixer`` cannot be instantiated, and all methods outside of allocation are protected, so it acts as an abstract-only class. However, you may derive from it, such as the ``Mixers::DefMixer`` object ``(class DefMixer < MixCore::BaseMixer)``.
 
 ### USAGE ###
 ```ruby
-m = VolumeCtl::Mixer.new # Creates a new mixer object
-m.connect # or m.connect("default", "Master"), for example
+m = Mixers::DefMixer.new # Creates a new default mixer object
+m.connect # By default, calls BaseMixer.connect("default", "Master")
+m.disconnect # Disconnects from the ALSA server -- do NOT use after, will cause crash (until I update)
+m.close # Same as above
+
 m.enum # List off all the valid channels for the device
-m.volume # Returns the volume
-m.volume_a # Returns the volumes of all valid channels
-# .volume_a and .volume will be merged in one of the next updates
-m.volume_c :channel_id # Get the volume of a specific channel
-# ex 1: m.volume_c 3 <- gets the volume of the 4th channel (indices start at 0)
-# ex 2: m.volume_c 300000 <- will return FALSE, b/c this channel isn't valid
-# ex 3: m.volume_c "pizza" <- will return NIL, b/c this TYPE isn't valid
-m.set_volume :percent, :change_type
+
+m.volume # Returns the volumes by channel
+m.vget # Same as above
+m.c_vget :channel_id # Get the volume of a specific channel
+# ex 1: m.c_vget 3 <- gets the volume of the 4th channel (indices start at 0)
+# ex 2: m.c_vget 300000 <- will return FALSE, b/c this channel isn't valid
+# ex 3: m.c_vget "pizza" <- will return NIL, b/c this TYPE isn't valid
+
+m.set_volume :percent, :change_type # Sets the volume of all channels
+m.vset :percent, :change_type # Same as above
 # ex 1: m.set_volume 15, -1 <- Turns the volume down by 15%
 # ex 2: m.set_volume 15, 1 <- Turns the volume up by 15%
 # ex 3: m.set_volume 15, 0 <- Turns the volume to 15%
+m.c_vset :channel, :percent, :change_type # Set single channel's volume
+# ex 1: m.c_vset 1, 15, :lower (or :down, :decrease) <- Turns the volume down by 15%
+# ex 2: m.c_vset 1, 15, :up (or :raise, :increase) <- Turns the volume up by 15%
+# ex 3: m.c_vset 1, 15, nil (or anything else) <- Turns the volume to 15%
+
 m.mute # Mutes the volume, storing the current volume or else a 50% default
 m.unmute # Unmutes the volume
-m.disconnect # Disconnects from the ALSA server -- do NOT use after, will cause crash (until I update)
 ```
 
 ### TO-DO ###
-1) Check over gemspec
-1) Add a way to MODIFY data for EACH/SPECIFIED channel(s)
-1) Clean up the setter methods, b/c requiring an int is not intuitive...
-1) Merge ``.volume`` and ``.volume_a``
-1) Make the volume setters work by channel as ``.set_volume_c`` separate from ``.set_volume_a``
-1) Make the method that sets all volumes have either relative or flat (relative to all channel-current volumes; flat, as in all channels identical, but value-set will automatically be flat)
-1) Do a test install, after I clean up a bit more
-1) Publish gem
-1) Abstract VolumeCtl::Mixer, so you can use mixers other than the default
-1) Add some error-handling, such as trying to operate on a disconnected mixer
-1) After abstracting for non-default mixers, add error-handling, in case of a failed connection
+1) Clean up and improve gemspec, Rakefile, and documentation comments
+1) Add some more error-handling (such as disconnected mixer)
+1) Do a test install
+1) Publish gem, first release
+1) Create derived class from ``DefMixer`` with non-flat volume modulation (such as for use in spatially-oriented physical speaker configurations)
+1) Derive other desirable classes for other common controllers
+1) EVENTUALLY, add PCM and capture classes
 
 ### INSTALLATION ###
+```
+gem install volumectl
+```

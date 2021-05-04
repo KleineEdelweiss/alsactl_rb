@@ -7,7 +7,8 @@ Gem::Specification.new do |spec|
   spec.version = VolumeCtl::VERSION
   spec.summary = "ALSA wrapper in Ruby"
   spec.description = <<~DESC
-    ALSA wrapper in Ruby
+    ALSA wrapper in Ruby, utilizing a purely-abstract C-Ruby API backend
+    and a pure Ruby middleware with extensibility.
   DESC
   spec.authors = ["Edelweiss"]
   
@@ -18,7 +19,7 @@ Gem::Specification.new do |spec|
     "homepage_uri"        => spec.homepage,
     "source_code_uri"     => "https://github.com/KleineEdelweiss/volumectl_rb",
     #"documentation_uri"   => "",
-    #"changelog_uri"       => "https://github.com/KleineEdelweiss/volumectl_rb/blob/master/CHANGELOG.md",
+    "changelog_uri"       => "https://github.com/KleineEdelweiss/volumectl_rb/blob/master/CHANGELOG.md",
     "bug_tracker_uri"     => "https://github.com/KleineEdelweiss/volumectl_rb/issues"
     }
   
@@ -39,5 +40,5 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 2.7.0"
   
   # Compiled extensions
-  spec.extensions = ['ext/volumectl/extconf.rb']
+  spec.extensions = ['ext/mixcore/extconf.rb']
 end # End spec

@@ -1,1 +1,3 @@
- 
+### CHANGELOG -- (Ruby VolumeCtl) ###
+1) 0.1.0, unreleased: 2021-May-04 -- Changed the API to use Ruby as the complex implementation interface, because faster to get it done, less code, and way simpler than doing all the higher-order calculations (as well as string and symbol comparisons) in the C wrapper. [t. Edelweiss]
+1) 0.1.0, unreleased: 2021-May-04 -- In so doing above, turned entire C wrapper into an abstract class and module, so it can only be implemented by inheritance. Added such an implementation class, ``Mixers::DefMixer``. [t. Edelweiss]
