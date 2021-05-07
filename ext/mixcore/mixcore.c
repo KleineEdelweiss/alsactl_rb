@@ -12,8 +12,11 @@
 
 // Expansion to create a mixer pointer and then get the
 // data from it
-#define MIXLOADER base_mixer_obj* mixer; \
-  TypedData_Get_Struct(self, base_mixer_obj, &base_mixer_type, mixer);
+#define MIXLOADER base_mixer_obj* mixer; TypedData_Get_Struct(self, base_mixer_obj, &base_mixer_type, mixer);
+  
+// Don't try to handle anything on NULL mixer
+#define CHK_MIX if (mixer->handle == NULL || \
+  mixer->element == NULL) { return Qnil; }
 
 // Shorthand to allocate the channel arrays
 #define MAX_CHANNELS (SND_MIXER_SCHN_LAST + 1)
@@ -98,6 +101,12 @@ VALUE method_base_mixer_connect(VALUE self, VALUE card_name, VALUE elem_name) {
   const char *selem_name = StringValueCStr(elem_name); // ex: "Master"
   
   MIXLOADER; // Shorthand load the mixer
+  // If the mixer is already connected, raise an error
+  if (mixer->handle != NULL ||  mixer->element != NULL) {
+    rb_raise(rb_eRuntimeError,
+      "\n::ERROR: Already connected to mixer! Disconnect first!::\n");
+    return Qnil;
+  }
   
   // The below will use CRIT_CHECK, as these errors are
   // non-recoverable, and continuation in other methods
@@ -128,14 +137,20 @@ VALUE method_base_mixer_connect(VALUE self, VALUE card_name, VALUE elem_name) {
 // Disconnect from the ALSA server
 VALUE method_base_mixer_disconnect(VALUE self) {
   MIXLOADER; // Shorthand load the mixer
-  int err = snd_mixer_close(mixer->handle); // Close the mixer
-  CRIT_CHECK;
+  if (mixer->handle != NULL) {
+    int err = snd_mixer_close(mixer->handle); // Close the mixer
+    CRIT_CHECK;
+    mixer->element = NULL;
+    mixer->handle = NULL;
+  } // If it's already NULL, there is nothing to close,
+  // So returning TRUE is still saying the mixer is disconnected
   return Qtrue;
 } // End disconnect method
 
 // Enumerate the channels
 VALUE method_base_mixer_enum_channels(VALUE self) {
   MIXLOADER; // Shorthand load the mixer
+  CHK_MIX; // Check if mixer is null or not, before attempting operations
   VALUE channels = rb_hash_new(); // Hash of channels
   for (int i = 0; i < (MAX_CHANNELS); i++) {
     // Check if the channel exists; if so, give it a true key.
@@ -151,6 +166,7 @@ VALUE method_base_mixer_enum_channels(VALUE self) {
 VALUE method_base_mixer_cvolume_get(VALUE self, VALUE cid) {
   long min, max, current; // Volume values
   MIXLOADER; // Shorthand load the mixer
+  CHK_MIX; // Check if mixer is null or not, before attempting operations
   snd_mixer_handle_events(mixer->handle); // Refresh events on handle
   snd_mixer_selem_get_playback_volume_range(mixer->element, &min, &max); // Get  volume range
   
@@ -184,6 +200,7 @@ VALUE method_base_mixer_cvolume_get(VALUE self, VALUE cid) {
 // Set channel volume to specified value
 VALUE method_base_mixer_cvolume_set(VALUE self, VALUE channel, VALUE volume) {
   MIXLOADER; // Shorthand load the mixer
+  CHK_MIX; // Check if mixer is null or not, before attempting operations
   int ch = NUM2INT(channel); // Cast the channel to an INT
   // Set the volume for one channel
   snd_mixer_selem_set_playback_volume(mixer->element, ch, NUM2LONG(volume));
@@ -193,6 +210,7 @@ VALUE method_base_mixer_cvolume_set(VALUE self, VALUE channel, VALUE volume) {
 // Set volume to specified value
 VALUE method_base_mixer_volume_set_all(VALUE self, VALUE volume) {
   MIXLOADER; // Shorthand load the mixer
+  CHK_MIX; // Check if mixer is null or not, before attempting operations
   // Set the volume for all channels
   int err = snd_mixer_selem_set_playback_volume_all(mixer->element, NUM2LONG(volume));
   return (err ? Qfalse : Qtrue);
@@ -209,7 +227,7 @@ void Init_mixcore() {
   // Mixer class
   BaseMixer = rb_define_class_under(MixCore, "BaseMixer", rb_cData);
   rb_define_alloc_func(BaseMixer, base_mixer_alloc);
-  rb_define_method(BaseMixer, "initialize", base_mixer_m_initialize, 0);
+  rb_define_protected_method(BaseMixer, "pro_initialize", base_mixer_m_initialize, 0);
   
   // Connection methods
   rb_define_protected_method(BaseMixer, "pro_connect", method_base_mixer_connect, 2);

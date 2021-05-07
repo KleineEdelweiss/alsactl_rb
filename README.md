@@ -33,7 +33,6 @@ m.unmute # Unmutes the volume
 
 ### TO-DO ###
 1) Clean up and improve gemspec, Rakefile, and documentation comments
-1) Add some more error-handling (such as disconnected mixer)
 1) Do a test install
 1) Publish gem, first release
 1) Create derived class from ``DefMixer`` with non-flat volume modulation (such as for use in spatially-oriented physical speaker configurations)

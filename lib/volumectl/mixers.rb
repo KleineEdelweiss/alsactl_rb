@@ -45,16 +45,27 @@ module Mixers
   class DefMixer < MixCore::BaseMixer
     attr_reader :channels, :mute_state
     
+    # Constructor
+    def initialize
+      pro_initialize # Call the hidden, protected constructor
+      reset # Reset/initialize instance variables
+    end # end constructor
+    
+    # Reset the variables (in case reloading mixer)
+    def reset() @mute_state = @channels = nil end
+    
     # Connect to the current default mixer
     # Enumerate the channels, right after
     def connect
       pro_connect("default", "Master") 
       enum
-      @mute_state = {}
     end # End connect/enum
     
     # Disconnect method
-    def disconnect() pro_disconnect end
+    def disconnect()
+      pro_disconnect # Disconnect the mixer
+      reset # Reset the instance variables
+    end
     alias :close :disconnect
     
     # Enumerate the channels
@@ -68,34 +79,34 @@ module Mixers
     # a clean hash
     def vget
       volumes = Hash.new
-      @channels.each do |k,v|
-        cv = c_vget(k)
-        volumes[k] = cv
-      end
-      volumes
+      if @channels then # @channels is nil, if not enumerated and will raise errors
+        @channels.each do |k,v|
+          cv = c_vget(k) # Get volume for each channel
+          volumes[k] = cv
+        end # If no channels, print an error to STDERR
+      else $stderr.puts "ERROR: No channels detected. Is mixer connected ('.connect')?" end
+      volumes # Return volumes, unless
     end 
     alias :volume :vget # End getter of volumes
     
     # Set a single channel's volume
-    def c_vset(channel, perc_change, type_change)
-      curr = c_vget(channel)
+    def c_vset(channel, perc_change, type_change=nil)
+      curr = c_vget(channel) # curr must not be nil to continue
       if curr and (Integer === channel) and (Integer === perc_change) then
-        adjustment = Mixers.compute(curr[:min], curr[:max], curr[:volume], perc_change, type_change)
+        adjustment = Mixers.compute(curr[:min], curr[:max],
+          curr[:volume], perc_change, type_change)
         pro_cvolume_set(channel, adjustment)
-      else
-        false
-      end
+      else false end
     end # End individual channel volume setter
     
     # Set all the volumes
-    def vset(perc_change, type_change)
+    def vset(perc_change, type_change=nil)
       curr = c_vget(0) # Get the default/lowest channel
-      if (Integer === perc_change) then
-        adjustment = Mixers.compute(curr[:min], curr[:max], curr[:volume], perc_change, type_change)
+      if curr and (Integer === perc_change) then
+        adjustment = Mixers.compute(curr[:min], curr[:max],
+          curr[:volume], perc_change, type_change)
         pro_volume_set(adjustment)
-      else
-        false
-      end
+      else false end
     end 
     alias :set_volume :vset # End setter for all volumes
     
