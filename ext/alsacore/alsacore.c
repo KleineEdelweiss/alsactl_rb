@@ -1,4 +1,4 @@
-/* IN-PROCESS FILE - 2021-May-02 */
+/* IN-PROCESS FILE - 2021-May-09 */
 // Include Ruby
 #include <ruby.h>
 
@@ -24,10 +24,144 @@
 // Shorthand early return on error
 #define CRIT_CHECK if (err != 0) { return INT2NUM(err); }
 
+/* 
+ * Document-module: AlsaCore
+ * 
+ * This module provides the concrete methods from which
+ * to extend custom mixers for volume control.
+ * 
+ * A simple example of a default/Master mixer object is
+ * available and usable as +AlsaCtl::DefMixer+.
+ * 
+ * = Example
+ *   
+ *   require 'AlsaCore'
+ *   
+ *   class MyMixer < AlsaCore::BaseMixer
+ */
+
 // Basic type initiators used in this file
-VALUE MixCore = Qnil;
+VALUE AlsaCore = Qnil;
 VALUE BaseMixer = Qnil;
 // End type initiators
+
+/* 
+ * Document-class: AlsaCore::BaseMixer
+ * 
+ * The BaseMixer class provides purely protected methods
+ * that can be used from an inheriting class. +AlsaCtl::DefMixer+
+ * inherits this class and provides a simple interface without
+ * complex mixer management operations.
+ * 
+ * BaseMixer provides methods for 
+ * 1. Resource management
+ * 2. Connection
+ * 3. Disconnection
+ * 4. Setting ALL the volumes of a mixer
+ * 5. Per-channel volume setting of the mixer
+ * 6. Per-channel retrieval of mixer volume information
+ * 7. Enumeration of channels within the mixer
+ * 8. Key error handling for common operations
+ * 
+ * The API can be found on https://www.alsa-project.org/alsa-doc/alsa-lib/
+ * 
+ *---
+ * Document-method: pro_initialize
+ *   
+ *   (base_mixer_m_initialize)
+ *   
+ *   Protected method initializes the BaseMixer class.
+ * 
+ *   Instantiates the wrapped struct. Does not take any
+ *   arguments.
+ * 
+ *   self.new -> BaseMixer
+ *   self.initialize -> BaseMixer
+ * 
+ *---
+ * Document-method: pro_connect
+ *   
+ *   (method_base_mixer_connect)
+ *   
+ *   Connects to a requested ALSA mixer.
+ * 
+ *   Takes 2 strings, a card name and element name (identifier).
+ *   +DefMixer+ automatically passes the values "default" and "Master"
+ *   to generate the default mixer element for the system.
+ *   
+ *   self.connect(char*, char*) -> BaseMixer | error
+ *   
+ *   pro_connect("default", "Master") -> new BaseMixer
+ * 
+ *---
+ * Document-method: pro_close
+ * 
+ *   (method_base_mixer_disconnect)
+ *   
+ *   Disconnects the mixer and sets its struct member pointers
+ *   to NULL.
+ * 
+ *   Takes no arguments.
+ * 
+ *   Returns true, if no error.
+ * 
+ *---
+ * Document-method: pro_enum
+ * 
+ *   (method_base_mixer_enum_channels)
+ *   
+ *   Returns a hash of valid channels for the mixer, on success.
+ *   On failure, returns +nil+.
+ * 
+ *   Takes no arguments.
+ * 
+ *---
+ * Document-method: pro_cvolume_get
+ * 
+ *   (method_base_mixer_cvolume_get)
+ *   Gets the volume settings for a selected channel on the mixer.
+ * 
+ *   Returns a hash with the volume, on success.
+ * 
+ *   On failure, returns either:
+ *   +nil+, if the mixer is disconnected
+ *   +false+, if the mixer doesn't have this channel
+ * 
+ *   Takes 1 argument, the channel number to check.
+ *   
+ *   pro_cvolume_get(1) -> {:name, :max, :min, :volume, :percent}
+ * 
+ *---
+ * Document-method: pro_cvolume_set
+ * 
+ *   (method_base_mixer_cvolume_set)
+ *   
+ *   Sets the volume for a specific channel.
+ * 
+ *   Takes 2 arguments, the channel number (+int+) and the volume to use (+long+).
+ *   When inheriting this class, you need to convert the values correctly,
+ *   as 1 will not be 1%, but more like 0.1%, if your mixer uses 2^16 or something.
+ * 
+ *   Returns the output of method_base_mixer_cvolume_get for the same channel,
+ *   on success.
+ * 
+ *   Returns +nil+, on failure.
+ *   
+ *   pro_cvolume_set(1, 32768) -> Sets channel 1 to 32768 (usually 50%)
+ * 
+ *---
+ * Document-method: pro_volume_set
+ * 
+ *   (method_base_mixer_volume_set_all)
+ *   
+ *   Sets the volumes for the entire mixer, all channels. This method
+ *   uses a separate call from ALSA, +snd_mixer_selem_set_playback_volume_all+,
+ *   which does not require any channels.
+ * 
+ *   Takes 1 argument, the volume (+long+).
+ *   
+ *   pro_volume_set(32768) -> Sets all channels to 32768 (probably 50%)
+ */
 
 // ---------------------------
 // MIXER STRUCT BELOW
@@ -73,7 +207,7 @@ VALUE base_mixer_alloc(VALUE self) {
   return TypedData_Wrap_Struct(self, &base_mixer_type, mixer); // Wrap it up!
 } // End mixer handle allocation
 
-// Initializer method for mixer handle
+// Initialize / constructor
 VALUE base_mixer_m_initialize(VALUE self) {
   // The below are set on connect() and voided on disconnect()
   snd_mixer_t *handle = NULL; // NULL handle
@@ -162,7 +296,7 @@ VALUE method_base_mixer_enum_channels(VALUE self) {
   return channels;
 } // End channel enumerator
 
-// Get a specific channel's volume
+// Get the volume for a single channel
 VALUE method_base_mixer_cvolume_get(VALUE self, VALUE cid) {
   long min, max, current; // Volume values
   MIXLOADER; // Shorthand load the mixer
@@ -193,11 +327,7 @@ VALUE method_base_mixer_cvolume_get(VALUE self, VALUE cid) {
   } else { return Qnil; } // Nil if channel id is not a number
 } // End getter for single-channel volume
 
-// ---------------------------
-// MIXER PRIVATE METHODS BELOW
-// ---------------------------
-
-// Set channel volume to specified value
+// Set volume on a single channel
 VALUE method_base_mixer_cvolume_set(VALUE self, VALUE channel, VALUE volume) {
   MIXLOADER; // Shorthand load the mixer
   CHK_MIX; // Check if mixer is null or not, before attempting operations
@@ -207,7 +337,7 @@ VALUE method_base_mixer_cvolume_set(VALUE self, VALUE channel, VALUE volume) {
   return method_base_mixer_cvolume_get(self, channel);
 } // End set channel volume to specified
 
-// Set volume to specified value
+// Set ALL the channels' volumes on the mixer
 VALUE method_base_mixer_volume_set_all(VALUE self, VALUE volume) {
   MIXLOADER; // Shorthand load the mixer
   CHK_MIX; // Check if mixer is null or not, before attempting operations
@@ -216,16 +346,12 @@ VALUE method_base_mixer_volume_set_all(VALUE self, VALUE volume) {
   return (err ? Qfalse : Qtrue);
 } // End set volume to specified
 
-// ---------------------------
-// END MIXER PRIVATE METHODS
-// ---------------------------
-
-// Initialize the MixCore module
-void Init_mixcore() {
-  MixCore = rb_define_module("MixCore"); // Module
+// Initialize the AlsaCore module
+void Init_alsacore() {
+  AlsaCore = rb_define_module("AlsaCore"); // Module
   
   // Mixer class
-  BaseMixer = rb_define_class_under(MixCore, "BaseMixer", rb_cData);
+  BaseMixer = rb_define_class_under(AlsaCore, "BaseMixer", rb_cData);
   rb_define_alloc_func(BaseMixer, base_mixer_alloc);
   rb_define_protected_method(BaseMixer, "pro_initialize", base_mixer_m_initialize, 0);
   

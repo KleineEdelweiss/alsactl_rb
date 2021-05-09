@@ -1,7 +1,7 @@
-# lib/volumectl.rb
+# lib/alsactl.rb
 
 # This module include a C wrapper for
 # controlling basic Linux ALSA volume
 # settings on the system
-require_relative("./volumectl/mixers")
-require_relative("./volumectl/version")
+require_relative("./alsactl/mixers")
+require_relative("./alsactl/version")

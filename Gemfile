@@ -4,7 +4,8 @@ source "https://rubygems.org"
 ruby ">= 2.7.0"
 
 # This gem
-gem "volumectl"
+gem "alsactl"
 
 # Required gems
 gem "rake-compiler"
+gem "rdoc"

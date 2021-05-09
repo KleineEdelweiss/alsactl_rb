@@ -1,9 +1,9 @@
 ### OVERVIEW ###
-VolumeCtl is a C-Ruby API wrapper with a pure Ruby middleware, for the ALSA library on Linux. By default, it handles the ``default/Master`` mixer object (current default volume controller). The base class, ``MixCore::BaseMixer`` cannot be instantiated, and all methods outside of allocation are protected, so it acts as an abstract-only class. However, you may derive from it, such as the ``Mixers::DefMixer`` object ``(class DefMixer < MixCore::BaseMixer)``.
+AlsaCtl is a C-Ruby API wrapper with a pure Ruby middleware, for the ALSA library on Linux. By default, it handles the ``default/Master`` mixer object (current default volume controller). The base class, ``AlsaCore::BaseMixer`` cannot be instantiated, and all methods outside of allocation are protected, so it acts as an abstract-only class. However, you may derive from it, such as the ``AlsaCtl::DefMixer`` object ``(class DefMixer < AlsaCore::BaseMixer)``.
 
 ### USAGE ###
 ```ruby
-m = Mixers::DefMixer.new # Creates a new default mixer object
+m = AlsaCtl::DefMixer.new # Creates a new default mixer object
 m.connect # By default, calls BaseMixer.connect("default", "Master")
 m.disconnect # Disconnects from the ALSA server -- do NOT use after, will cause crash (until I update)
 m.close # Same as above
@@ -32,14 +32,12 @@ m.unmute # Unmutes the volume
 ```
 
 ### TO-DO ###
-1) Clean up and improve gemspec, Rakefile, and documentation comments
-1) Do a test install
-1) Publish gem, first release
+1) Start the next version, 0.2.0 _WITH_ 
 1) Create derived class from ``DefMixer`` with non-flat volume modulation (such as for use in spatially-oriented physical speaker configurations)
 1) Derive other desirable classes for other common controllers
 1) EVENTUALLY, add PCM and capture classes
 
 ### INSTALLATION ###
 ```
-gem install volumectl
+gem install alsactl
 ```
