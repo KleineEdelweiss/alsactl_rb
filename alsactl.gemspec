@@ -24,10 +24,10 @@ Gem::Specification.new do |spec|
     }
   
   # List of files
-  spec.files = Dir.glob("lib/**/*")
+  spec.files = Dir.glob ["lib/**/*.rb", "ext/**/*.{c,cpp,h,hpp,rb}", "Rakefile"]
   
   # Rdoc options
-  spec.extra_rdoc_files = Dir["README.md","CHANGELOG.md", "LICENSE.txt"]
+  spec.extra_rdoc_files = Dir["README.md","CHANGELOG.md", "LICENSE.txt", "changes/*.md"]
   spec.rdoc_options += [
     "--title", "AlsaCtl -- ALSA wrapper in the C-Ruby API",
     "--main", "README.md",

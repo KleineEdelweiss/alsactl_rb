@@ -1,6 +1,6 @@
 # lib/alsactl/mixer.rb
 
-require_relative "../alsacore/alsacore"
+require "alsacore.so"
 
 ##
 # This extends the regular AlsaCore module and

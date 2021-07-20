@@ -6,5 +6,5 @@ module AlsaCtl
   ##
   # Current version -- I'm only documenting this, so
   # +rdoc+ doesn't complain.
-  VERSION = "0.1.0"
+  VERSION = "0.1.1"
 end
